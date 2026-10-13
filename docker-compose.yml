@@ -50,6 +50,8 @@ services:
   api:
     <<: [*common-env, *backend-build]
     container_name: pixora-api
+    volumes:
+      - ./backend:/app:cached
     command: sh -c "python scripts/wait_for_db.py && python scripts/init_minio.py && exec gunicorn -w 4 -k gthread --threads 4 -b 0.0.0.0:5000 --access-logfile - --error-logfile - 'app:create_app()'"
     expose: ["5000"]
     depends_on:
@@ -72,6 +74,8 @@ services:
   worker-light:
     <<: [*common-env, *backend-build]
     container_name: pixora-worker-light
+    volumes:
+      - ./backend:/app:cached
     command: sh -c "python scripts/wait_for_db.py && exec celery -A app.tasks.celery_app.celery_app worker -Q light -c 4 --loglevel=INFO -n light@%h"
     depends_on:
       api:
@@ -84,6 +88,8 @@ services:
   worker-ml:
     <<: [*common-env, *backend-build]
     container_name: pixora-worker-ml
+    volumes:
+      - ./backend:/app:cached
     command: sh -c "python scripts/wait_for_db.py && exec celery -A app.tasks.celery_app.celery_app worker -Q ml -c 1 --loglevel=INFO -n ml@%h"
     depends_on:
       api:
@@ -97,6 +103,8 @@ services:
   worker-gpu:
     <<: [*common-env, *backend-build]
     container_name: pixora-worker-gpu
+    volumes:
+      - ./backend:/app:cached
     profiles: ["gpu"]
     command: sh -c "python scripts/wait_for_db.py && exec celery -A app.tasks.celery_app.celery_app worker -Q gpu -c 1 --loglevel=INFO -n gpu@%h"
     deploy:
