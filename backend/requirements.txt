@@ -1,0 +1,43 @@
+# web
+Flask==3.0.3
+Flask-SQLAlchemy==3.1.1
+Flask-Migrate==4.0.7
+Flask-JWT-Extended==4.6.0
+Flask-Cors==4.0.1
+Flask-Limiter==3.8.0
+gunicorn==22.0.0
+
+# db
+SQLAlchemy==2.0.35
+alembic==1.13.3
+psycopg[binary]==3.2.3
+pgvector==0.3.4
+
+# queue
+celery==5.4.0
+redis==5.0.8
+
+# storage
+boto3==1.35.48
+
+# imaging
+Pillow==10.4.0
+
+# config
+pydantic==2.9.2
+pydantic-settings==2.5.2
+python-dotenv==1.0.1
+
+# auth
+passlib[bcrypt]==1.7.4
+bcrypt==4.2.0
+PyJWT==2.9.0
+
+# misc
+requests==2.32.3
+python-magic==0.4.27
+
+# dev / test
+pytest==8.3.3
+pytest-flask==1.3.0
+ruff==0.6.9
