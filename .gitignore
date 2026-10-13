@@ -1,0 +1,38 @@
+# ── env / secrets ──
+.env
+.env.*
+!.env.example
+
+# ── python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── node ──
+node_modules/
+dist/
+.vite/
+
+# ── notebooks ──
+.ipynb_checkpoints/
+
+# ── model weights (large files) ──
+backend/app/ml/models/*.pth
+backend/app/ml/models/*.safetensors
+backend/app/ml/models/*.ckpt
+backend/app/ml/models/*.bin
+
+# ── os / editor ──
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# ── local logs ──
+*.log

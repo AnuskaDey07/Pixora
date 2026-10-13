@@ -1,0 +1,179 @@
+name: pixora
+
+x-common-env: &common-env
+  env_file: [.env]
+  restart: unless-stopped
+  networks: [pixora-net]
+
+x-backend-build: &backend-build
+  build:
+    context: ./backend
+    dockerfile: Dockerfile
+  image: pixora-backend:dev
+
+services:
+  # ─────────────────────────────────────────────────────────────
+  # Reverse proxy + static Vue build
+  # ─────────────────────────────────────────────────────────────
+  nginx:
+    <<: *common-env
+    image: nginx:1.27-alpine
+    container_name: pixora-nginx
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - frontend_dist:/usr/share/nginx/html:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      frontend:
+        condition: service_completed_successfully
+
+  # ─────────────────────────────────────────────────────────────
+  # One-shot: build Vue → drop dist/ into shared volume
+  # ─────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: pixora-frontend:dev
+    container_name: pixora-frontend-build
+    volumes:
+      - frontend_dist:/out
+    networks: [pixora-net]
+    restart: "no"
+
+  # ─────────────────────────────────────────────────────────────
+  # Flask API
+  # ─────────────────────────────────────────────────────────────
+  api:
+    <<: [*common-env, *backend-build]
+    container_name: pixora-api
+    command: sh -c "python scripts/wait_for_db.py && python scripts/init_minio.py && exec gunicorn -w 4 -k gthread --threads 4 -b 0.0.0.0:5000 --access-logfile - --error-logfile - 'app:create_app()'"
+    expose: ["5000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:5000/api/health',timeout=2).status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ─────────────────────────────────────────────────────────────
+  # Celery workers — one per queue
+  # ─────────────────────────────────────────────────────────────
+  worker-light:
+    <<: [*common-env, *backend-build]
+    container_name: pixora-worker-light
+    command: sh -c "python scripts/wait_for_db.py && exec celery -A app.tasks.celery_app.celery_app worker -Q light -c 4 --loglevel=INFO -n light@%h"
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  worker-ml:
+    <<: [*common-env, *backend-build]
+    container_name: pixora-worker-ml
+    command: sh -c "python scripts/wait_for_db.py && exec celery -A app.tasks.celery_app.celery_app worker -Q ml -c 1 --loglevel=INFO -n ml@%h"
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  # GPU worker is opt-in: `docker compose --profile gpu up`
+  worker-gpu:
+    <<: [*common-env, *backend-build]
+    container_name: pixora-worker-gpu
+    profiles: ["gpu"]
+    command: sh -c "python scripts/wait_for_db.py && exec celery -A app.tasks.celery_app.celery_app worker -Q gpu -c 1 --loglevel=INFO -n gpu@%h"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  # ─────────────────────────────────────────────────────────────
+  # Data stores
+  # ─────────────────────────────────────────────────────────────
+  postgres:
+    <<: *common-env
+    image: pgvector/pgvector:pg16
+    container_name: pixora-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pixora}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pixora_dev_pw}
+      POSTGRES_DB: ${POSTGRES_DB:-pixora}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pixora} -d ${POSTGRES_DB:-pixora}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    <<: *common-env
+    image: redis:7-alpine
+    container_name: pixora-redis
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    <<: *common-env
+    image: cgr.dev/chainguard/minio:latest
+    user: "0:0"
+    container_name: pixora-minio
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-pixora}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-pixora_dev_minio}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  frontend_dist:
+
+networks:
+  pixora-net:
+    driver: bridge
