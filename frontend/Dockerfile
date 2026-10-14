@@ -8,6 +8,5 @@ COPY . .
 RUN npm run build
 
 FROM alpine:3.20 AS runtime
-RUN mkdir -p /out
-COPY --from=build /app/dist /out
-CMD ["sh", "-c", "echo 'frontend build complete' && ls -la /out"]
+COPY --from=build /app/dist /staging
+CMD ["sh", "-c", "rm -rf /out/* && cp -r /staging/. /out/ && echo 'build copied to /out' && ls -la /out"]
