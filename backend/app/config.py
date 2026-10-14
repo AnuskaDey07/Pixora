@@ -35,6 +35,7 @@ class Settings(BaseSettings):
 
     # --- MinIO / S3 ---
     minio_endpoint: str = Field(default="minio:9000", alias="MINIO_ENDPOINT")
+    minio_public_endpoint: str = Field(default="localhost:9000", alias="MINIO_PUBLIC_ENDPOINT")
     minio_root_user: str = Field(default="pixora", alias="MINIO_ROOT_USER")
     minio_root_password: str = Field(default="pixora_dev_minio", alias="MINIO_ROOT_PASSWORD")
     minio_use_ssl: bool = Field(default=False, alias="MINIO_USE_SSL")
