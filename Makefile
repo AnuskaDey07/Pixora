@@ -91,3 +91,27 @@ fe-dev:
 fe-build:
 	$(DC) up -d --build frontend
 	$(DC) restart nginx
+.PHONY: gen-secrets
+gen-secrets:
+	$(DC) exec -T api python scripts/generate_secrets.py
+
+.PHONY: prod-up
+prod-up:
+	$(DC) -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+
+.PHONY: prod-down
+prod-down:
+	$(DC) -f docker-compose.yml -f docker-compose.prod.yml down
+
+.PHONY: backup
+backup:
+	./scripts/backup.sh
+
+.PHONY: restore
+restore:
+	@test -n "$(FILE)" || (echo "usage: make restore FILE=backups/pixora-backup-....tar.gz"; exit 1)
+	./scripts/restore.sh $(FILE)
+
+.PHONY: backups-list
+backups-list:
+	@ls -lh backups/ 2>/dev/null || echo "no backups yet — run 'make backup'"
