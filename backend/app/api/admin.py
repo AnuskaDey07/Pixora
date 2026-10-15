@@ -1,6 +1,7 @@
 """Admin-only endpoints."""
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 
 from flask import Blueprint, jsonify, request
@@ -10,6 +11,7 @@ from app.extensions import db
 from app.models.image import Image
 from app.models.job import Job
 from app.models.user import User
+from app.services import storage
 
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/api/admin")
@@ -97,11 +99,55 @@ def nsfw_queue(user: User):
             {
                 "id": str(i.id),
                 "user_id": str(i.user_id),
+                "filename": i.filename,
                 "nsfw_score": i.nsfw_score,
-                "thumb_key": i.thumb_key,
+                "thumb_url": storage.presigned_url("thumbs", i.thumb_key, 3600)
+                if i.thumb_key
+                else None,
+                "original_url": storage.presigned_url("uploads", i.original_key, 3600),
                 "created_at": i.created_at.isoformat() if i.created_at else None,
             }
             for i in flagged
         ],
         count=len(flagged),
     )
+
+
+@admin_bp.post("/nsfw-queue/<image_id>/approve")
+@require_admin
+def nsfw_approve(user: User, image_id: str):
+    """Mark an image as safe — clears the flag, keeps the score."""
+    try:
+        iid = uuid.UUID(image_id)
+    except ValueError:
+        return jsonify(error="invalid_id"), 400
+
+    image = Image.query.get(iid)
+    if image is None:
+        return jsonify(error="not_found"), 404
+
+    image.nsfw_flagged = False
+    db.session.commit()
+    return jsonify(id=str(image.id), nsfw_flagged=False)
+
+
+@admin_bp.post("/nsfw-queue/<image_id>/reject")
+@require_admin
+def nsfw_reject(user: User, image_id: str):
+    """Reject and remove an image — deletes DB row + both MinIO objects."""
+    try:
+        iid = uuid.UUID(image_id)
+    except ValueError:
+        return jsonify(error="invalid_id"), 400
+
+    image = Image.query.get(iid)
+    if image is None:
+        return jsonify(error="not_found"), 404
+
+    storage.delete_object("uploads", image.original_key)
+    if image.thumb_key:
+        storage.delete_object("thumbs", image.thumb_key)
+
+    db.session.delete(image)
+    db.session.commit()
+    return jsonify(deleted=True, id=str(iid))

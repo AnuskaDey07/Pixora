@@ -11,7 +11,7 @@ from app.config import get_settings
 from app.extensions import db, limiter
 from app.models.image import Image
 from app.models.user import User
-from app.services import imaging, storage
+from app.services import imaging, jobs as jobs_service, storage
 
 
 images_bp = Blueprint("images", __name__, url_prefix="/api/images")
@@ -63,6 +63,17 @@ def upload(user: User):
     db.session.add(record)
     db.session.commit()
 
+    # Fire background pipelines: NSFW detection + CLIP embedding
+    for jt in ("detect_nsfw", "embed"):
+        try:
+            job = jobs_service.create_job(
+                user_id=user.id, job_type=jt, image_id=record.id, params={}
+            )
+            jobs_service.enqueue_job(job)
+        except Exception:
+            # Never fail the upload because a background pipeline couldn't queue
+            pass
+
     return jsonify(
         id=str(record.id),
         filename=record.filename,
@@ -99,6 +110,8 @@ def list_images(user: User):
                 "height": i.height,
                 "mime": i.mime,
                 "size_bytes": i.size_bytes,
+                "nsfw_flagged": i.nsfw_flagged,
+                "nsfw_score": i.nsfw_score,
                 "thumb_url": storage.presigned_url("thumbs", i.thumb_key, 3600) if i.thumb_key else None,
                 "created_at": i.created_at.isoformat() if i.created_at else None,
             }
