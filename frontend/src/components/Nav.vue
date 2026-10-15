@@ -28,7 +28,13 @@ function handleLogout() {
           to="/admin/nsfw"
           class="text-amber-300 hover:text-amber-200"
         >NSFW Queue</RouterLink>
-        <span class="text-slate-500">{{ auth.user?.email }}</span>
+
+        <RouterLink
+          to="/profile"
+          class="text-slate-400 hover:text-white"
+          :title="auth.user?.email ?? ''"
+        >{{ auth.user?.email?.split('@')[0] ?? 'profile' }}</RouterLink>
+
         <button
           @click="handleLogout"
           class="rounded-md border border-slate-700 px-3 py-1.5 text-slate-300 hover:border-slate-500 hover:text-white"

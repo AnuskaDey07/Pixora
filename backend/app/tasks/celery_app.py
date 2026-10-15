@@ -1,9 +1,10 @@
-"""Celery app + queue routing."""
+"""Celery app + queue routing + beat schedule."""
 from __future__ import annotations
 
 import os
 
 from celery import Celery, Task
+from celery.schedules import crontab
 from flask import Flask
 
 
@@ -63,6 +64,14 @@ def _make() -> Celery:
             "app.tasks.search",
             "app.tasks.maintenance",
         ),
+        # ── Beat: periodic maintenance ──────────────────────
+        beat_schedule={
+            "reconcile-stuck-jobs": {
+                "task": "app.tasks.maintenance.reconcile_stuck_jobs",
+                "schedule": crontab(minute="*/5"),  # every 5 minutes
+                "options": {"queue": "light"},
+            },
+        },
     )
 
     app.Task = FlaskTask

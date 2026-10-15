@@ -99,6 +99,21 @@ services:
       postgres:
         condition: service_healthy
 
+  worker-beat:
+    <<: [*common-env, *backend-build]
+    container_name: pixora-worker-beat
+    volumes:
+      - ./backend:/app:cached
+    command: sh -c "python scripts/wait_for_db.py && exec celery -A app.tasks.celery_app.celery_app beat --loglevel=INFO"
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+
   # GPU worker is opt-in: `docker compose --profile gpu up`
   worker-gpu:
     <<: [*common-env, *backend-build]

@@ -172,6 +172,68 @@ if s == 401:
 else:
     bad("bad login check", f"expected 401, got {s}")
 
+# Change password — reject wrong old password
+s, data = request(
+    "POST", "/api/auth/change-password",
+    data={"old_password": "not-the-real-password", "new_password": "temp-new-pw-123"},
+    token=token,
+)
+if s == 401:
+    ok("change-password rejects wrong old password (401)")
+else:
+    bad("change-password wrong-old check", f"expected 401, got {s}")
+
+# Change password — reject too-short new password
+s, data = request(
+    "POST", "/api/auth/change-password",
+    data={"old_password": PASSWORD, "new_password": "short"},
+    token=token,
+)
+if s == 400:
+    ok("change-password rejects short password (400)")
+else:
+    bad("change-password short check", f"expected 400, got {s}")
+
+# Change password — reject same password
+s, data = request(
+    "POST", "/api/auth/change-password",
+    data={"old_password": PASSWORD, "new_password": PASSWORD},
+    token=token,
+)
+if s == 400:
+    ok("change-password rejects same password (400)")
+else:
+    bad("change-password same check", f"expected 400, got {s}")
+
+# Change password — round trip
+TEMP_PW = "temp-new-pw-123"
+s, data = request(
+    "POST", "/api/auth/change-password",
+    data={"old_password": PASSWORD, "new_password": TEMP_PW},
+    token=token,
+)
+if s == 200 and data and data.get("ok"):
+    ok("change-password accepts valid change")
+else:
+    bad("change-password valid change", f"status={s} body={data}")
+
+# Re-login with new password, change back
+s, data = request("POST", "/api/auth/login", data={"email": EMAIL, "password": TEMP_PW})
+if s == 200 and data and "access_token" in data:
+    temp_token = data["access_token"]
+    ok("login works with new password")
+    s, _ = request(
+        "POST", "/api/auth/change-password",
+        data={"old_password": TEMP_PW, "new_password": PASSWORD},
+        token=temp_token,
+    )
+    if s == 200:
+        ok("change-password restores original")
+    else:
+        bad("change-password restore", f"status={s}")
+else:
+    bad("login with new password", f"status={s} body={data}")
+
 
 # ─────────────────────────────────────────────────────────────────────
 # 3. Images
@@ -207,12 +269,33 @@ if s == 415:
 else:
     bad("upload junk check", f"expected 415, got {s}")
 
+# Upload rejects missing file
+s, _ = request("POST", "/api/images/upload", token=token, multipart={"fields": {}, "files": {}})
+if s == 400:
+    ok("upload with no file returns 400")
+else:
+    bad("upload no-file check", f"expected 400, got {s}")
+
 # List
 s, data = request("GET", "/api/images?limit=5", token=token)
 if s == 200 and data and data.get("count", 0) >= 1:
     ok(f"list images (count={data['count']})")
 else:
     bad("list images", f"status={s} body={data}")
+
+# Pagination — limit
+s, data = request("GET", "/api/images?limit=2&offset=0", token=token)
+if s == 200 and data is not None and len(data.get("images", [])) <= 2:
+    ok(f"images pagination limit=2 (returned {len(data.get('images', []))})")
+else:
+    bad("images pagination limit", f"status={s} body={data}")
+
+# Pagination — offset
+s, data = request("GET", "/api/images?limit=2&offset=1", token=token)
+if s == 200 and data is not None:
+    ok(f"images pagination offset=1 (returned {len(data.get('images', []))})")
+else:
+    bad("images pagination offset", f"status={s} body={data}")
 
 # Get
 s, data = request("GET", f"/api/images/{image_id}", token=token)
@@ -227,6 +310,13 @@ if s == 404:
     ok("get unknown image returns 404")
 else:
     bad("unknown image check", f"expected 404, got {s}")
+
+# 400 for malformed id
+s, _ = request("GET", "/api/images/not-a-uuid", token=token)
+if s == 400:
+    ok("get image with malformed id returns 400")
+else:
+    bad("malformed id check", f"expected 400, got {s}")
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -259,6 +349,7 @@ for jt, payload, expect_done in JOB_CASES:
     else:
         bad(f"create job {jt}", f"status={s} body={data}")
 
+# ── Create-job validation ────────────────────────────────────────────
 # Unknown job type
 s, _ = request("POST", "/api/jobs", data={"type": "does_not_exist"}, token=token)
 if s == 400:
@@ -266,7 +357,47 @@ if s == 400:
 else:
     bad("unknown job type check", f"expected 400, got {s}")
 
-# Poll all jobs until done / timeout
+# Missing type
+s, _ = request("POST", "/api/jobs", data={}, token=token)
+if s == 400:
+    ok("missing job type returns 400")
+else:
+    bad("missing job type check", f"expected 400, got {s}")
+
+# Invalid image_id (not a UUID)
+s, _ = request(
+    "POST", "/api/jobs",
+    data={"type": "resize", "image_id": "not-a-uuid", "params": {"width": 100, "height": 100}},
+    token=token,
+)
+if s == 400:
+    ok("invalid image_id returns 400")
+else:
+    bad("invalid image_id check", f"expected 400, got {s}")
+
+# Image not found (valid UUID, doesn't exist)
+s, _ = request(
+    "POST", "/api/jobs",
+    data={"type": "resize", "image_id": str(uuid.uuid4()), "params": {"width": 100, "height": 100}},
+    token=token,
+)
+if s == 404:
+    ok("unknown image for job returns 404")
+else:
+    bad("unknown image check", f"expected 404, got {s}")
+
+# params must be an object
+s, _ = request(
+    "POST", "/api/jobs",
+    data={"type": "resize", "image_id": image_id, "params": "not an object"},
+    token=token,
+)
+if s == 400:
+    ok("non-object params returns 400")
+else:
+    bad("non-object params check", f"expected 400, got {s}")
+
+# ── Poll all jobs until done / timeout ───────────────────────────────
 print()
 deadline = time.time() + JOB_TIMEOUT_S
 pending = dict(job_ids)
@@ -296,6 +427,49 @@ for jt, expected in [(c[0], c[2]) for c in JOB_CASES]:
         bad(f"job {jt}", f"status={r['status']} error={r.get('error')}")
     else:
         bad(f"job {jt}", f"unexpected status {r['status']}")
+
+# ── Pagination on jobs ───────────────────────────────────────────────
+s, data = request("GET", "/api/jobs?limit=3&offset=0", token=token)
+if s == 200 and data is not None and len(data.get("jobs", [])) <= 3:
+    ok(f"jobs pagination limit=3 (returned {len(data.get('jobs', []))})")
+else:
+    bad("jobs pagination limit", f"status={s} body={data}")
+
+# Filter by status=done
+s, data = request("GET", "/api/jobs?status=done&limit=10", token=token)
+if s == 200 and data is not None:
+    all_done = all(j["status"] == "done" for j in data.get("jobs", []))
+    if all_done:
+        ok(f"jobs status filter (returned {len(data.get('jobs', []))} done)")
+    else:
+        bad("jobs status filter", "response contained non-done jobs")
+else:
+    bad("jobs status filter", f"status={s} body={data}")
+
+# Filter by type=resize
+s, data = request("GET", "/api/jobs?type=resize&limit=10", token=token)
+if s == 200 and data is not None:
+    all_resize = all(j["type"] == "resize" for j in data.get("jobs", []))
+    if all_resize:
+        ok(f"jobs type filter (returned {len(data.get('jobs', []))} resize)")
+    else:
+        bad("jobs type filter", "response contained non-resize jobs")
+else:
+    bad("jobs type filter", f"status={s} body={data}")
+
+# 404 on unknown job id
+s, _ = request("GET", f"/api/jobs/{uuid.uuid4()}", token=token)
+if s == 404:
+    ok("get unknown job returns 404")
+else:
+    bad("unknown job check", f"expected 404, got {s}")
+
+# 400 on malformed job id
+s, _ = request("GET", "/api/jobs/not-a-uuid", token=token)
+if s == 400:
+    ok("get job with malformed id returns 400")
+else:
+    bad("malformed job id check", f"expected 400, got {s}")
 
 
 # ─────────────────────────────────────────────────────────────────────
