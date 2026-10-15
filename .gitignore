@@ -43,3 +43,4 @@ celerybeat-schedule*
 .env.*.local
 .env.local
 backups/
+backend/celerybeat-schedule
