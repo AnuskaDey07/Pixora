@@ -6,18 +6,19 @@ const query = ref('')
 const results = ref<SearchResult[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
-const mode = ref<'semantic' | 'similar'>('semantic')
+const mode = ref<'semantic' | 'similar' | null>(null)
 
 async function search() {
   if (!query.value.trim()) return
   loading.value = true
   error.value = null
+  mode.value = 'semantic'
   try {
     const res = await semanticSearch(query.value, 30)
-    results.value = res.results
-    mode.value = 'semantic'
+    results.value = res?.results ?? []
   } catch (e: any) {
     error.value = e?.response?.data?.error ?? 'search_failed'
+    results.value = []
   } finally {
     loading.value = false
   }
@@ -26,12 +27,13 @@ async function search() {
 async function similar(imageId: string) {
   loading.value = true
   error.value = null
+  mode.value = 'similar'
   try {
     const res = await similarSearch(imageId, 30)
-    results.value = res.results
-    mode.value = 'similar'
+    results.value = res?.results ?? []
   } catch (e: any) {
     error.value = e?.response?.data?.error ?? 'similar_failed'
+    results.value = []
   } finally {
     loading.value = false
   }
@@ -56,18 +58,25 @@ async function similar(imageId: string) {
       >{{ loading ? 'Searching…' : 'Search' }}</button>
     </form>
 
-    <div v-if="error" class="mt-4 rounded-md bg-rose-500/10 px-3 py-2 text-sm text-rose-300">{{ error }}</div>
+    <div v-if="error" class="mt-4 rounded-md bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+      {{ error }}
+    </div>
 
-    <div v-if="mode === 'similar'" class="mt-4 text-sm text-slate-400">Showing images similar to your selection.</div>
+    <div v-if="mode === 'similar'" class="mt-4 text-sm text-slate-400">
+      Showing images similar to your selection.
+    </div>
 
-    <div v-if="results.length > 0" class="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
+    <div v-if="loading" class="mt-10 text-center text-sm text-slate-500">Searching…</div>
+
+    <div v-else-if="results.length > 0" class="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
       <div v-for="r in results" :key="r.image_id" class="overflow-hidden rounded-lg border border-slate-800 bg-slate-900">
         <div class="aspect-square overflow-hidden bg-slate-950">
           <img v-if="r.thumb_url" :src="r.thumb_url" class="h-full w-full object-cover" />
+          <div v-else class="flex h-full items-center justify-center text-xs text-slate-600">no thumb</div>
         </div>
         <div class="p-2">
           <div class="truncate text-xs text-slate-300">{{ r.filename ?? r.image_id.slice(0, 8) }}</div>
-          <div class="text-[10px] text-slate-500">score {{ (r.score).toFixed(3) }}</div>
+          <div class="text-[10px] text-slate-500">score {{ Number(r.score).toFixed(3) }}</div>
           <button
             @click="similar(r.image_id)"
             class="mt-2 w-full rounded border border-slate-700 py-1 text-xs text-slate-300 hover:border-brand-500"
@@ -76,7 +85,11 @@ async function similar(imageId: string) {
       </div>
     </div>
 
-    <div v-else-if="!loading" class="mt-10 rounded-lg border border-dashed border-slate-800 p-10 text-center text-sm text-slate-500">
+    <div v-else-if="mode !== null" class="mt-10 rounded-lg border border-dashed border-slate-800 p-10 text-center text-sm text-slate-500">
+      No results for that query.
+    </div>
+
+    <div v-else class="mt-10 rounded-lg border border-dashed border-slate-800 p-10 text-center text-sm text-slate-500">
       Enter a query above, or click "Find similar" on any result.
     </div>
   </div>
