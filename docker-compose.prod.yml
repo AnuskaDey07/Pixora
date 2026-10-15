@@ -1,0 +1,98 @@
+# Pixora — production overrides.
+#
+# Layered on top of docker-compose.yml:
+#
+#     docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Changes from dev:
+#   - no code bind mounts (image-baked code)
+#   - DB and MinIO ports not exposed to host
+#   - higher worker concurrency, no debug
+#   - restart: always
+#   - JSON logging
+
+x-prod-logging: &prod-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  api:
+    restart: always
+    environment:
+      FLASK_ENV: production
+    volumes: []   # override the dev bind mount
+    command: >
+      sh -c "python scripts/wait_for_db.py &&
+             python scripts/init_minio.py &&
+             gunicorn -w 8 -k gthread --threads 4
+             --timeout 120 --graceful-timeout 30 --keep-alive 5
+             -b 0.0.0.0:5000
+             --access-logfile - --error-logfile -
+             'app:create_app()'"
+    logging: *prod-logging
+
+  worker-light:
+    restart: always
+    volumes: []
+    command: >
+      sh -c "python scripts/wait_for_db.py &&
+             celery -A app.tasks.celery_app.celery_app worker
+             -Q light -c 8 --loglevel=WARNING --max-tasks-per-child=200
+             -n light@%h"
+    logging: *prod-logging
+
+  worker-ml:
+    restart: always
+    volumes: []
+    command: >
+      sh -c "python scripts/wait_for_db.py &&
+             celery -A app.tasks.celery_app.celery_app worker
+             -Q ml -c 2 --loglevel=WARNING --max-tasks-per-child=50
+             -n ml@%h"
+    logging: *prod-logging
+
+  worker-gpu:
+    restart: always
+    volumes: []
+    command: >
+      sh -c "python scripts/wait_for_db.py &&
+             celery -A app.tasks.celery_app.celery_app worker
+             -Q gpu -c 1 --loglevel=INFO --max-tasks-per-child=20
+             -n gpu@%h"
+    logging: *prod-logging
+
+  worker-beat:
+    restart: always
+    volumes: []
+    command: >
+      sh -c "python scripts/wait_for_db.py &&
+             celery -A app.tasks.celery_app.celery_app beat
+             --loglevel=INFO --schedule=/tmp/celerybeat-schedule"
+    logging: *prod-logging
+
+  nginx:
+    restart: always
+    logging: *prod-logging
+
+  postgres:
+    restart: always
+    # Port NOT exposed to host in production
+    ports: []
+    logging: *prod-logging
+
+  redis:
+    restart: always
+    logging: *prod-logging
+
+  minio:
+    restart: always
+    # Ports NOT exposed to host in production — nginx proxies to it internally
+    ports: []
+    logging: *prod-logging
+
+  frontend:
+    # One-shot build container — no restart
+    restart: "no"
+    logging: *prod-logging

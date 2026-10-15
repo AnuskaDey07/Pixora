@@ -73,3 +73,62 @@ Reopen Ubuntu, then `docker info` to verify.
 - Inpaint masks: MinIO bucket pixora-masks
 - Postgres data: Docker volume pixora_postgres_data
 - Frontend build: Docker volume pixora_frontend_dist
+
+---
+
+## Production operations
+
+### Start in production mode
+
+    make prod-up
+
+### Stop
+
+    make prod-down
+
+### Check health
+
+    docker compose ps
+    curl http://localhost/api/health
+
+### Backup now
+
+    ./scripts/backup.sh
+
+### Restore
+
+    ./scripts/restore.sh backups/pixora-backup-YYYYMMDD-HHMMSS.tar.gz
+
+### Rotate JWT secret
+
+1. Generate a new one:
+       make gen-secrets | grep JWT_SECRET_KEY
+2. Update `.env` on the host.
+3. Restart:
+       docker compose restart api worker-light worker-ml worker-beat
+4. All existing tokens become invalid. Users must log in again.
+
+### Rotate the Postgres password
+
+1. Generate:
+       make gen-secrets | grep POSTGRES_PASSWORD
+2. Update `.env`: `POSTGRES_PASSWORD` and the password in `DATABASE_URL`.
+3. Change it in Postgres:
+       docker compose exec postgres psql -U pixora -c "ALTER USER pixora WITH PASSWORD 'new-password';"
+4. Restart:
+       make prod-down && make prod-up
+
+### Cloudflare tunnel down
+
+    sudo systemctl status cloudflared
+    sudo systemctl restart cloudflared
+
+For a quick tunnel, just re-run `cloudflared tunnel --url http://localhost:80`.
+
+### Disk filling up
+
+    docker system df
+    docker system prune -f
+    ls -lh backups/
+
+The backup script auto-prunes to the last 7 archives.

@@ -36,3 +36,10 @@ Thumbs.db
 
 # ── local logs ──
 *.log
+# ── Celery Beat runtime state ──
+backend/celerybeat-schedule*
+celerybeat-schedule*
+.env.prod
+.env.*.local
+.env.local
+backups/
