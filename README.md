@@ -171,3 +171,5 @@ The boundary between them is a single frozen interface:
 ## License
 
 MIT — see `LICENSE`.
+
+New to the project? Read [docs/onboarding.md](docs/onboarding.md) for a step-by-step setup guide with OS-specific instructions and troubleshooting.
