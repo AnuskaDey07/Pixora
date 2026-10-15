@@ -8,9 +8,7 @@ from flask import Flask
 
 
 def _create_flask_app() -> Flask:
-    """Import create_app lazily to avoid circular imports."""
     from app import create_app
-
     return create_app()
 
 
@@ -49,20 +47,25 @@ def _make() -> Celery:
         result_expires=3600,
         task_default_queue="light",
         task_routes={
-            "app.tasks.basic.*":    {"queue": "light"},
-            "app.tasks.search.*":   {"queue": "ml"},
-            "app.tasks.detect.*":   {"queue": "ml"},
-            "app.tasks.generate.*": {"queue": "gpu"},
+            "app.tasks.basic.*":        {"queue": "light"},
+            "app.tasks.detect.*":       {"queue": "ml"},
+            "app.tasks.search.*":       {"queue": "ml"},
+            "app.tasks.maintenance.*":  {"queue": "light"},
+            "app.tasks.generate.*":     {"queue": "gpu"},
         },
         task_soft_time_limit=600,
         task_time_limit=660,
         broker_connection_retry_on_startup=True,
-        imports=("app.tasks.basic",),
+        imports=(
+            "app.tasks.basic",
+            "app.tasks.detect",
+            "app.tasks.generate",
+            "app.tasks.search",
+            "app.tasks.maintenance",
+        ),
     )
 
-    # Use FlaskTask as the default base class for all tasks
     app.Task = FlaskTask
-
     return app
 
 

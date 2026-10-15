@@ -107,13 +107,6 @@ services:
       - ./backend:/app:cached
     profiles: ["gpu"]
     command: sh -c "python scripts/wait_for_db.py && exec celery -A app.tasks.celery_app.celery_app worker -Q gpu -c 1 --loglevel=INFO -n gpu@%h"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
     depends_on:
       api:
         condition: service_healthy

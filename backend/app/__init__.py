@@ -36,12 +36,14 @@ def create_app() -> Flask:
     from app.api.health import health_bp
     from app.api.images import images_bp
     from app.api.jobs import jobs_bp
+    from app.api.search import search_bp
 
     app.register_blueprint(health_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(images_bp)
     app.register_blueprint(jobs_bp)
+    app.register_blueprint(search_bp)
 
     @app.errorhandler(404)
     def _not_found(_):
