@@ -97,9 +97,24 @@ def detect_objects(image: Image.Image, params: dict) -> MLResult:
 
 
 def embed(image: Image.Image, params: dict) -> MLResult:
-    """Stub: returns a zero vector of the expected dimension."""
+    """Stub: deterministic non-zero 512-dim vector derived from image bytes.
+
+    Real CLIP embeddings capture semantic content. This stub produces a
+    reproducible vector so cosine distance is defined (no NaN) and similar
+    images rank closer together for demo purposes.
+    """
+    import hashlib
+
+    h = hashlib.sha256(image.tobytes()[:4096]).digest()
+    # Expand the 32-byte hash to 512 floats in [-1, 1]
+    vec = [((h[i % len(h)] / 127.5) - 1.0) for i in range(512)]
+    # L2 normalize so cosine distance grep -A 15 "def embed" backend/app/ml/_stub.py | head -25= 1 - dot product
+    norm = sum(v * v for v in vec) ** 0.5 or 1.0
+    vec = [v / norm for v in vec]
+
     return MLResult(
         ok=True,
-        output={"vector": [0.0] * 512, "dim": 512},
-        meta={"model": "stub"},
+        output={"vector": vec, "dim": 512},
+        meta={"model": "stub-deterministic"},
     )
+

@@ -37,6 +37,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        CACHE_BUST: "${CACHE_BUST:-1}"
     image: pixora-frontend:dev
     container_name: pixora-frontend-build
     volumes:

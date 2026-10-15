@@ -6,7 +6,7 @@ import uuid
 
 from flask import Blueprint, jsonify, request
 from PIL import Image
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from app.api._decorators import require_auth
 from app.extensions import db
@@ -20,15 +20,18 @@ from app.services import storage
 search_bp = Blueprint("search", __name__, url_prefix="/api/search")
 
 
+def _safe_score(distance) -> float | None:
+    """1 - distance, or None if the value is NaN (zero-vector embeddings)."""
+    s = 1.0 - float(distance)
+    if s != s:  # NaN check
+        return None
+    return s
+
+
 @search_bp.post("/semantic")
 @require_auth
 def semantic(user: User):
-    """Semantic search over the user's images using a text query.
-
-    Text → CLIP text embedding → nearest image vectors.
-    Stub returns zero vectors, so results are effectively random order
-    until the real CLIP model lands.
-    """
+    """Semantic search over the user's images using a text query."""
     data = request.get_json(silent=True) or {}
     query = (data.get("query") or "").strip()
     limit = min(int(data.get("limit", 20)), 50)
@@ -36,15 +39,13 @@ def semantic(user: User):
     if not query:
         return jsonify(error="empty_query"), 400
 
-    # Stub: embed the query as if it were an image (returns zero vector).
-    # Real impl: encode text with CLIP's text encoder.
+    # Stub: encode the query as if it were an image.
     dummy = Image.new("RGB", (224, 224), (0, 0, 0))
     qres = ml.embed(dummy, {"mode": "text", "text": query})
     if not qres.ok or not qres.output:
         return jsonify(error="embedding_failed"), 500
     qvec = qres.output["vector"]
 
-    # Cosine distance via pgvector. Order by increasing distance.
     stmt = (
         select(
             ImageModel.id,
@@ -66,7 +67,7 @@ def semantic(user: User):
             {
                 "image_id": str(row.id),
                 "filename": row.filename,
-                "score": 1.0 - float(row.distance),
+                "score": _safe_score(row.distance),
                 "thumb_url": storage.presigned_url("thumbs", row.thumb_key, 3600)
                 if row.thumb_key
                 else None,
@@ -80,7 +81,7 @@ def semantic(user: User):
 @search_bp.post("/similar")
 @require_auth
 def similar(user: User):
-    """Find images similar to a given image (by its CLIP embedding)."""
+    """Find images similar to a given image by CLIP embedding."""
     data = request.get_json(silent=True) or {}
     image_id = data.get("image_id")
     limit = min(int(data.get("limit", 20)), 50)
@@ -123,7 +124,7 @@ def similar(user: User):
             {
                 "image_id": str(row.id),
                 "filename": row.filename,
-                "score": 1.0 - float(row.distance),
+                "score": _safe_score(row.distance),
                 "thumb_url": storage.presigned_url("thumbs", row.thumb_key, 3600)
                 if row.thumb_key
                 else None,

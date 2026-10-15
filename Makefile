@@ -115,3 +115,11 @@ restore:
 .PHONY: backups-list
 backups-list:
 	@ls -lh backups/ 2>/dev/null || echo "no backups yet — run 'make backup'"
+
+.PHONY: reset-demo
+reset-demo:
+	@echo "This wipes the database and MinIO, then re-seeds demo data."
+	@read -p "Type 'yes' to continue: " c && [ "$$c" = "yes" ]
+	$(DC) exec -T api flask db downgrade base
+	$(DC) exec -T api flask db upgrade
+	$(DC) exec -T api python scripts/seed.py
