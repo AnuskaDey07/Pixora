@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useImagesStore } from '@/stores/images'
 import { useJobsStore } from '@/stores/jobs'
@@ -10,29 +10,57 @@ const images = useImagesStore()
 const jobs = useJobsStore()
 const router = useRouter()
 
+const PAGE_SIZE = 12
+const page = ref(0)
+const totalLoaded = ref(0)
+
+const hasMore = computed(() => images.items.length === PAGE_SIZE)
+const canPrev = computed(() => page.value > 0)
+const canNext = computed(() => images.items.length === PAGE_SIZE)
+
+async function loadPage() {
+  const offset = page.value * PAGE_SIZE
+  await images.refresh(PAGE_SIZE, offset)
+}
+
+function nextPage() {
+  if (!canNext.value) return
+  page.value += 1
+  loadPage()
+}
+
+function prevPage() {
+  if (!canPrev.value) return
+  page.value -= 1
+  loadPage()
+}
+
 onMounted(async () => {
-  await Promise.all([images.refresh(), jobs.refresh({ limit: 10 })])
+  await Promise.all([loadPage(), jobs.refresh({ limit: 10 })])
 })
 
 async function handleDelete(id: string) {
   if (!confirm('Delete this image?')) return
   await images.remove(id)
+  if (images.items.length === 0 && page.value > 0) {
+    page.value -= 1
+    loadPage()
+  }
 }
 
 async function resize(id: string, width: number, height: number) {
   const job = await jobs.create({ type: 'resize', image_id: id, params: { width, height } })
   await jobs.poll(job.id)
-  await images.refresh()
+  await loadPage()
 }
 
 async function findSimilar(id: string) {
   try {
     await similarSearch(id, 1)
-    router.push({ name: 'search' })
   } catch {
-    // ignore; search page will show results when user clicks
-    router.push({ name: 'search' })
+    // ignore
   }
+  router.push({ name: 'search' })
 }
 </script>
 
@@ -41,7 +69,10 @@ async function findSimilar(id: string) {
     <div class="mb-6 flex items-center justify-between">
       <div>
         <h1 class="text-2xl font-bold">Your gallery</h1>
-        <p class="text-sm text-slate-400">{{ images.items.length }} images</p>
+        <p class="text-sm text-slate-400">
+          Page {{ page + 1 }}
+          <span v-if="images.items.length">· {{ images.items.length }} shown</span>
+        </p>
       </div>
       <RouterLink to="/upload" class="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-500">
         Upload image
@@ -50,9 +81,14 @@ async function findSimilar(id: string) {
 
     <div v-if="images.loading && images.items.length === 0" class="text-slate-500">Loading…</div>
 
-    <div v-else-if="images.items.length === 0" class="rounded-lg border border-dashed border-slate-800 p-12 text-center">
+    <div v-else-if="images.items.length === 0 && page === 0" class="rounded-lg border border-dashed border-slate-800 p-12 text-center">
       <p class="text-slate-400">No images yet.</p>
       <RouterLink to="/upload" class="mt-2 inline-block text-brand-400 hover:underline">Upload your first image →</RouterLink>
+    </div>
+
+    <div v-else-if="images.items.length === 0" class="rounded-lg border border-dashed border-slate-800 p-12 text-center">
+      <p class="text-slate-400">Nothing on this page.</p>
+      <button @click="prevPage" class="mt-2 text-brand-400 hover:underline">← Previous page</button>
     </div>
 
     <div v-else class="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
@@ -75,6 +111,22 @@ async function findSimilar(id: string) {
       </div>
     </div>
 
+    <!-- Pagination controls -->
+    <div v-if="images.items.length > 0" class="mt-6 flex items-center justify-center gap-3">
+      <button
+        @click="prevPage"
+        :disabled="!canPrev"
+        class="rounded-md border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-40"
+      >← Previous</button>
+      <span class="text-sm text-slate-500">Page {{ page + 1 }}</span>
+      <button
+        @click="nextPage"
+        :disabled="!canNext"
+        class="rounded-md border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-40"
+      >Next →</button>
+    </div>
+
+    <!-- Recent jobs -->
     <div v-if="jobs.items.length > 0" class="mt-10">
       <h2 class="mb-3 text-sm uppercase tracking-wide text-slate-500">Recent jobs</h2>
       <div class="space-y-2">

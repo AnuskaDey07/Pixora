@@ -12,12 +12,14 @@ const router = createRouter({
     { path: '/upload', name: 'upload', component: () => import('@/views/Upload.vue') },
     { path: '/editor', name: 'editor', component: () => import('@/views/Editor.vue') },
     { path: '/search', name: 'search', component: () => import('@/views/Search.vue') },
+    { path: '/profile', name: 'profile', component: () => import('@/views/Profile.vue') },
     {
       path: '/admin/nsfw',
       name: 'admin-nsfw',
       component: () => import('@/views/admin/NsfwQueue.vue'),
       meta: { requiresAdmin: true },
     },
+    { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('@/views/NotFound.vue'), meta: { public: true } },
   ],
 })
 
@@ -27,7 +29,6 @@ router.beforeEach((to) => {
 
   if (to.meta.requiresAdmin) {
     const auth = useAuthStore()
-    // If user info isn't loaded yet, let it through — App.vue bootstraps.
     if (auth.user && !auth.isAdmin) return { name: 'gallery' }
   }
   return true

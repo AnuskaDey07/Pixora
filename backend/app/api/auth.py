@@ -110,3 +110,26 @@ def me(user: User):
         is_active=user.is_active,
         created_at=user.created_at.isoformat() if user.created_at else None,
     )
+
+
+@auth_bp.post("/change-password")
+@require_auth
+@limiter.limit("10 per hour")
+def change_password(user: User):
+    """Change the current user's password. Requires the old password."""
+    data = request.get_json(silent=True) or {}
+    old_password = data.get("old_password") or ""
+    new_password = data.get("new_password") or ""
+
+    if not old_password or not new_password:
+        return jsonify(error="missing_fields"), 400
+    if len(new_password) < 8:
+        return jsonify(error="password_too_short", min_length=8), 400
+    if not verify_password(old_password, user.password_hash):
+        return jsonify(error="wrong_password"), 401
+    if old_password == new_password:
+        return jsonify(error="same_password"), 400
+
+    user.password_hash = hash_password(new_password)
+    db.session.commit()
+    return jsonify(ok=True)
