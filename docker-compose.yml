@@ -11,6 +11,26 @@ x-backend-build: &backend-build
     dockerfile: Dockerfile
   image: pixora-backend:dev
 
+# CPU variant — worker-ml. Works on every host. Built by default.
+x-backend-build-ml-cpu: &backend-build-ml-cpu
+  build:
+    context: ./backend
+    dockerfile: Dockerfile
+    args:
+      INSTALL_ML: "1"
+      ML_VARIANT: "cpu"
+  image: pixora-backend-ml:dev
+
+# CUDA variant — worker-gpu. Only on GPU hosts. Profile-gated.
+x-backend-build-ml-cuda: &backend-build-ml-cuda
+  build:
+    context: ./backend
+    dockerfile: Dockerfile
+    args:
+      INSTALL_ML: "1"
+      ML_VARIANT: "cuda"
+  image: pixora-backend-ml-cuda:dev
+
 services:
   # ─────────────────────────────────────────────────────────────
   # Reverse proxy + static Vue build
@@ -88,17 +108,13 @@ services:
         condition: service_healthy
 
   worker-ml:
-    <<: [*common-env, *backend-build]
+    <<: [*common-env, *backend-build-ml-cpu]
     container_name: pixora-worker-ml
     volumes:
       - ./backend:/app:cached
     command: sh -c "python scripts/wait_for_db.py && exec celery -A app.tasks.celery_app.celery_app worker -Q ml -c 1 --loglevel=INFO -n ml@%h"
     depends_on:
       api:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      postgres:
         condition: service_healthy
 
   worker-beat:
@@ -118,7 +134,7 @@ services:
 
   # GPU worker is opt-in: `docker compose --profile gpu up`
   worker-gpu:
-    <<: [*common-env, *backend-build]
+    <<: [*common-env,  *backend-build-ml-cuda]
     container_name: pixora-worker-gpu
     volumes:
       - ./backend:/app:cached

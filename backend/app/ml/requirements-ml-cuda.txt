@@ -1,0 +1,19 @@
+# CUDA ML dependencies — GPU hosts only.
+# Used by worker-gpu when deployed with a real NVIDIA GPU.
+# Installed INSTEAD of requirements-ml.txt, not alongside it.
+
+--extra-index-url https://download.pytorch.org/whl/cu121
+
+torch==2.5.1
+torchvision==0.20.1
+
+ultralytics==8.3.40
+opencv-python-headless==4.10.0.84
+numpy==2.1.3
+Pillow==10.4.0
+
+# Diffusion stack — added now so the image is ready when models land
+diffusers==0.31.0
+transformers==4.46.0
+accelerate==1.0.1
+safetensors==0.4.5

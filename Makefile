@@ -167,3 +167,13 @@ help:
 	@echo "  restore       Restore from backup: make restore FILE=..."
 	@echo "  backups-list  List existing backups"
 	@echo "  reset-demo    Wipe DB and re-seed (interactive)"
+
+.PHONY: build-gpu
+build-gpu:
+	@echo "Building CUDA ML image — only needed on a GPU host."
+	@echo "Downloads ~6 GB. Takes ~40 minutes."
+	docker compose build --no-cache worker-gpu
+
+.PHONY: gpu-up
+gpu-up:
+	docker compose --profile gpu up -d --build worker-gpu

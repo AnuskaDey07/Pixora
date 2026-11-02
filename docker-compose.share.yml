@@ -1,0 +1,4 @@
+services:
+  worker-ml:
+    build: !reset null
+    image: ayushcodes2611/pixora-backend-ml:latest
