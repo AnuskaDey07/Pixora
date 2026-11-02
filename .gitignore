@@ -44,3 +44,10 @@ celerybeat-schedule*
 .env.local
 backups/
 backend/celerybeat-schedule
+
+# ML weights — never commit
+*.pt
+*.onnx
+*.pth
+*.safetensors
+yolo*.pt
