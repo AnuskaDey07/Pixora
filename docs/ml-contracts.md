@@ -75,12 +75,18 @@ Returns: MLResult.output = RGB PIL.Image.
 
 ---
 
-### detect_nsfw(image, params)
+### detect_nsfw(image,params)
+Detects whether an image contains NSFW content.
 
-Params: none required.
-
-Returns: MLResult.output = dict: { "nsfw_score": 0.03, "categories": { "explicit": 0.01, "suggestive": 0.02 } }
-Meta: model, threshold (float, default 0.5).
+*   **Params:**
+    *   `threshold` (float, optional): Score above which content is considered NSFW. Default: `0.7`.
+*   **Output (dict):**
+    *   `nsfw_score` (float): Probability from 0.0 to 1.0 that the image is NSFW.
+    *   `categories` (dict): Raw probabilities from the model, e.g., `{"normal": 0.99, "nsfw": 0.01}`.
+*   **Meta:**
+    *   `model` (str): The model ID (`Falconsai/nsfw_image_detection`).
+    *   `elapsed_ms` (int): Inference time.
+    *   `threshold` (float): The threshold used.
 
 ---
 
