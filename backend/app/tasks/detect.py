@@ -13,7 +13,8 @@ from app.models.job import Job
 from app.services import jobs, storage
 
 from app.ml.detect_objects import detect_objects as real_detect_objects
-
+from app.ml.detect_nsfw import detect_nsfw as real_detect_nsfw
+from app.ml.remove_bg import remove_background as real_remove_bg
 
 NSFW_FLAG_THRESHOLD = 0.5
 
@@ -69,7 +70,7 @@ def detect_nsfw_task(self, job_id: str) -> str:
         img = Image.open(io.BytesIO(raw))
         img.load()
 
-        result = ml.detect_nsfw(img, job.params or {})
+        result = real_detect_nsfw(img, job.params or {})
         if not result.ok or not result.output:
             jobs.mark_failed(job, error=result.error or "ml_error")
             return "failed"
@@ -113,7 +114,7 @@ def remove_bg_task(self, job_id: str) -> str:
         img = Image.open(io.BytesIO(raw))
         img.load()
 
-        result = ml.remove_background(img, job.params or {})
+        result = real_remove_bg(img, job.params or {})
         if not result.ok or result.output is None:
             jobs.mark_failed(job, error=result.error or "ml_error")
             return "failed"
