@@ -68,6 +68,7 @@ export const useEditorStore = defineStore('editor', () => {
       case 'img2img':        return { prompt: '', strength: 0.75, steps: 20 }
       case 'inpaint':        return { prompt: '', steps: 30, guidance: 7.5 }
       case 'controlnet':     return { prompt: '', control_strength: 1.0 }
+      case 'detect_objects': return { confidence_threshold: 0.15 }
       default:               return {}
     }
   }

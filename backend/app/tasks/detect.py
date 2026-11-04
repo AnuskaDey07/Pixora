@@ -12,6 +12,8 @@ from app.models.image import Image as ImageModel
 from app.models.job import Job
 from app.services import jobs, storage
 
+from app.ml.detect_objects import detect_objects as real_detect_objects
+
 
 NSFW_FLAG_THRESHOLD = 0.5
 
@@ -43,7 +45,9 @@ def _run_dict_detect(fn, job_id: str) -> str:
             jobs.mark_failed(job, error=result.error or "ml_error")
             return f"failed: {result.error}"
 
-        jobs.mark_done(job, result_key=job.result_key or "", meta=result.output or {})
+        # Merge output (objects) and meta (image_width, image_height, model, etc.)
+        combined_meta = {**(result.output or {}), **(result.meta or {})}
+        jobs.mark_done(job, result_key=job.result_key or "", meta=combined_meta)
         return "ok"
     except Exception as exc:
         jobs.mark_failed(job, error=str(exc))
@@ -84,9 +88,9 @@ def detect_nsfw_task(self, job_id: str) -> str:
         raise
 
 
-@shared_task(name="app.tasks.detect.detect_ai_task", bind=True, max_retries=1)
-def detect_ai_task(self, job_id: str) -> str:
-    return _run_dict_detect(ml.detect_ai, job_id)
+@shared_task(name="app.tasks.detect.detect_objects_task", bind=True, max_retries=1)
+def detect_objects_task(self, job_id: str) -> str:
+    return _run_dict_detect(real_detect_objects, job_id)
 
 
 @shared_task(name="app.tasks.detect.detect_objects_task", bind=True, max_retries=1)
