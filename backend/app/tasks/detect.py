@@ -7,14 +7,17 @@ from celery import shared_task
 from PIL import Image
 
 from app.extensions import db
-from app.ml import _stub as ml
 from app.models.image import Image as ImageModel
 from app.models.job import Job
 from app.services import jobs, storage
 
+# Real models
 from app.ml.detect_objects import detect_objects as real_detect_objects
 from app.ml.detect_nsfw import detect_nsfw as real_detect_nsfw
 from app.ml.remove_bg import remove_background as real_remove_bg
+
+# Stubs (only for models not yet delivered)
+from app.ml._stub import detect_ai as stub_detect_ai
 
 NSFW_FLAG_THRESHOLD = 0.5
 
@@ -94,9 +97,9 @@ def detect_objects_task(self, job_id: str) -> str:
     return _run_dict_detect(real_detect_objects, job_id)
 
 
-@shared_task(name="app.tasks.detect.detect_objects_task", bind=True, max_retries=1)
-def detect_objects_task(self, job_id: str) -> str:
-    return _run_dict_detect(ml.detect_objects, job_id)
+@shared_task(name="app.tasks.detect.detect_ai_task", bind=True, max_retries=1)
+def detect_ai_task(self, job_id: str) -> str:
+    return _run_dict_detect(stub_detect_ai, job_id)
 
 
 @shared_task(name="app.tasks.detect.remove_bg_task", bind=True, max_retries=1)
