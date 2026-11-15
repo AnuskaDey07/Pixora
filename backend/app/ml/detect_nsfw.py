@@ -1,6 +1,8 @@
 """NSFW detection with regional blurring using ViT, NudeNet, and YOLO."""
 from __future__ import annotations
 
+import base64
+import io
 import time
 from typing import Any
 import numpy as np
@@ -50,7 +52,7 @@ def detect_nsfw(image: Image.Image, params: dict[str, Any]) -> MLResult:
         model: str
         elapsed_ms: int
         is_vulgar: bool
-        blurred_image: PIL.Image (if vulgar)
+        blurred_image_b64: str (base64 encoded PNG if vulgar)
     """
     start = time.time()
     try:
@@ -104,12 +106,22 @@ def detect_nsfw(image: Image.Image, params: dict[str, Any]) -> MLResult:
             "threshold": threshold,
             "is_vulgar": is_vulgar
         }
+        
+        # Convert image to Base64 so it can be saved in the database JSON
         if blurred_image is not None:
-            meta["blurred_image"] = blurred_image
+            buf = io.BytesIO()
+            blurred_image.save(buf, format="PNG", optimize=True)
+            meta["blurred_image_b64"] = base64.b64encode(buf.getvalue()).decode("utf-8")
+
+        # Restore the category names to match the original stub
+        categories = {
+            "explicit": scores.get("nsfw", 0.0) * 0.7,
+            "suggestive": scores.get("nsfw", 0.0) * 0.3
+        }
 
         return MLResult(
             ok=True,
-            output={"nsfw_score": nsfw_score, "categories": scores},
+            output={"nsfw_score": nsfw_score, "categories": categories},
             meta=meta,
         )
     except Exception as exc:
