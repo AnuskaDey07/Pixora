@@ -1,79 +1,116 @@
-"""NSFW detection using a fine-tuned Vision Transformer."""
+"""NSFW detection with regional blurring using ViT, NudeNet, and YOLO."""
 from __future__ import annotations
 
 import time
 from typing import Any
+import numpy as np
+import cv2
 
 from PIL import Image
 
 from app.ml.base import MLResult
 
-# Model is cached here so it loads once per worker, not per call.
 _classifier = None
-_MODEL_ID = "Falconsai/nsfw_image_detection"
+_nudenet_detector = None
+_yolo_model = None
 
+_MODEL_ID = "Falconsai/nsfw_image_detection"
+_EXPLICIT_CLASSES = [
+    'FEMALE_BREAST_EXPOSED', 'FEMALE_GENITALIA_EXPOSED', 
+    'MALE_GENITALIA_EXPOSED', 'BUTTOCKS_EXPOSED'
+]
 
 def _load():
-    """Load the model once and cache it."""
-    global _classifier
+    """Load all models once and cache them."""
+    global _classifier, _nudenet_detector, _yolo_model
     if _classifier is not None:
-        return _classifier
+        return _classifier, _nudenet_detector, _yolo_model
 
     import torch
     from transformers import pipeline
+    from nudenet import NudeDetector
+    from ultralytics import YOLO
 
-    # Use GPU if available, otherwise CPU
     device = 0 if torch.cuda.is_available() else -1
     
-    # Load the model
-    _classifier = pipeline(
-        "image-classification",
-        model=_MODEL_ID,
-        device=device,
-    )
-    return _classifier
+    _classifier = pipeline("image-classification", model=_MODEL_ID, device=device)
+    _nudenet_detector = NudeDetector()
+    _yolo_model = YOLO("yolov8n.pt")
+    
+    return _classifier, _nudenet_detector, _yolo_model
 
 
 def detect_nsfw(image: Image.Image, params: dict[str, Any]) -> MLResult:
-    """Detect NSFW content and return scores.
-
+    """Detect NSFW content and blur explicit regions.
+    
     params:
-        threshold (float, optional) — score above which is_vulgar is True.
-            Default 0.7.
-
+        threshold (float, optional): Score above which image is NSFW. Default 0.7.
+        
     meta:
         model: str
         elapsed_ms: int
-        threshold: float
+        is_vulgar: bool
+        blurred_image: PIL.Image (if vulgar)
     """
     start = time.time()
     try:
-        classifier = _load()
-        src = image.convert("RGB")
+        classifier, nudenet, yolo = _load()
         threshold = float(params.get("threshold", 0.7))
-
-        # Run inference
-        preds = classifier(src)
         
-        # Convert list of dicts to a single dict: {"normal": 0.9, "nsfw": 0.1}
+        src = image.convert("RGB")
+        
+        # 1. Global Classifier
+        preds = classifier(src)
         scores = {p["label"]: float(p["score"]) for p in preds}
         nsfw_score = scores.get("nsfw", 0.0)
-
-        # Build the output exactly as the stub does
-        output_data = {
-            "nsfw_score": nsfw_score,
-            "categories": scores
-        }
+        is_vulgar = nsfw_score >= threshold
         
+        blurred_image = None
+        
+        if is_vulgar:
+            # Convert to OpenCV BGR format for image manipulation
+            img_cv2 = cv2.cvtColor(np.array(src), cv2.COLOR_RGB2BGR)
+            blurred_count = 0
+            
+            # 2. NudeNet (Precision)
+            detections = nudenet.detect(img_cv2)
+            for detection in detections:
+                if detection['class'] in _EXPLICIT_CLASSES:
+                    x, y, w, h = detection['box']
+                    region = img_cv2[y:y+h, x:x+w]
+                    if region.size > 0:
+                        img_cv2[y:y+h, x:x+w] = cv2.GaussianBlur(region, (99, 99), 30)
+                    blurred_count += 1
+            
+            # 3. YOLO Fallback (Safety Net)
+            if blurred_count == 0:
+                results = yolo(img_cv2)
+                for box in results[0].boxes:
+                    if int(box.cls[0]) == 0: # Person class
+                        x1, y1, x2, y2 = map(int, box.xyxy[0])
+                        region = img_cv2[y1:y2, x1:x2]
+                        if region.size > 0:
+                            img_cv2[y1:y2, x1:x2] = cv2.GaussianBlur(region, (99, 99), 30)
+                        blurred_count += 1
+            
+            # Convert back to PIL
+            final_img = cv2.cvtColor(img_cv2, cv2.COLOR_BGR2RGB)
+            blurred_image = Image.fromarray(final_img)
+
+        # Construct Meta (passing the blurred image to Ayush)
+        meta = {
+            "model": _MODEL_ID,
+            "elapsed_ms": int((time.time() - start) * 1000),
+            "threshold": threshold,
+            "is_vulgar": is_vulgar
+        }
+        if blurred_image is not None:
+            meta["blurred_image"] = blurred_image
+
         return MLResult(
             ok=True,
-            output=output_data,
-            meta={
-                "model": _MODEL_ID,
-                "elapsed_ms": int((time.time() - start) * 1000),
-                "threshold": threshold,
-            },
+            output={"nsfw_score": nsfw_score, "categories": scores},
+            meta=meta,
         )
     except Exception as exc:
-        # Catch every exception and return a clean error
         return MLResult(ok=False, error=str(exc))
