@@ -232,6 +232,11 @@ async function run() {
                 </div>
               </div>
 
+              <!-- NSFW Blurred Image Display (NEW) -->
+              <img v-else-if="editor.resultMeta?.blurred_image_b64" 
+                :src="'data:image/png;base64,' + editor.resultMeta.blurred_image_b64" 
+                class="max-h-[350px] max-w-full object-contain rounded-md" />
+
               <!-- Fallback JSON for other tools -->
               <pre v-else-if="editor.resultMeta" class="max-h-full overflow-auto p-2 text-xs text-slate-300">{{
                 JSON.stringify(editor.resultMeta, null, 2) }}</pre>
