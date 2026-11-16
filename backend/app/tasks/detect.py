@@ -85,7 +85,7 @@ def detect_nsfw_task(self, job_id: str) -> str:
         image.nsfw_flagged = score >= NSFW_FLAG_THRESHOLD
         db.session.commit()
 
-        jobs.mark_done(job, result_key="", meta=result.output)
+        jobs.mark_done(job, result_key="", meta=result.meta)
         return f"ok: score={score:.3f} flagged={image.nsfw_flagged}"
     except Exception as exc:
         jobs.mark_failed(job, error=str(exc))
