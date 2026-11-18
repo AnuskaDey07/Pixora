@@ -85,8 +85,24 @@ def detect_nsfw_task(self, job_id: str) -> str:
         image.nsfw_flagged = score >= NSFW_FLAG_THRESHOLD
         db.session.commit()
 
-        jobs.mark_done(job, result_key="", meta=result.meta)
+        blurred_b64 = (result.meta or {}).get("blurred_image_b64")
+        result_key = ""
+
+        if blurred_b64:
+            import base64
+            # 1. Decode the base64 string back to bytes
+            image_bytes = base64.b64decode(blurred_b64)
+            
+            # 2. Upload the bytes to MinIO
+            result_key = storage.make_key(f"nsfw_blur/{job.user_id}", "out.png")
+            storage.upload_bytes("results", result_key, image_bytes, "image/png")
+            
+            # 3. Remove the massive base64 string from meta so we don't bloat the database
+            result.meta.pop("blurred_image_b64", None)
+
+        jobs.mark_done(job, result_key=result_key, meta=result.meta or {})
         return f"ok: score={score:.3f} flagged={image.nsfw_flagged}"
+    
     except Exception as exc:
         jobs.mark_failed(job, error=str(exc))
         raise
