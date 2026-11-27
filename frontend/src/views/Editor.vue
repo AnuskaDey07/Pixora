@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useImagesStore } from '@/stores/images'
 import { useEditorStore, type EditorTool } from '@/stores/editor'
@@ -19,6 +19,26 @@ interface ObjectResult {
 const route = useRoute()
 const images = useImagesStore()
 const editor = useEditorStore()
+
+// State variables
+const isFullScreen = ref(false)
+const zoomLevel = ref(1)
+const panX = ref(0)
+const panY = ref(0)
+
+// Reset zoom when the modal closes
+watch(isFullScreen, (val) => {
+  if (!val) {
+    zoomLevel.value = 1
+    panX.value = 0
+    panY.value = 0
+  }
+})
+
+function handleZoom(e: Event) {
+  const target = e.target as HTMLInputElement
+  zoomLevel.value = parseInt(target.value) / 100
+}
 
 const tools: { id: EditorTool; label: string; group: string }[] = [
   { id: 'resize', label: 'Resize', group: 'Basic' },
@@ -46,6 +66,13 @@ const detectionMeta = computed<ObjectResult | null>(() => {
   return meta as unknown as ObjectResult
 })
 
+// This gets the URL of whatever image is currently in the Result panel
+const fullScreenUrl = computed(() => {
+  if (editor.resultUrl) return editor.resultUrl
+  if (detectionMeta.value) return currentImage.value?.original_url || currentImage.value?.thumb_url
+  return null
+})
+
 onMounted(async () => {
   if (images.items.length === 0) await images.refresh()
   const qid = route.query.image as string | undefined
@@ -55,6 +82,40 @@ onMounted(async () => {
 
 async function run() {
   await editor.run()
+}
+
+async function downloadResult() {
+  if (!fullScreenUrl.value) return
+
+  try {
+    // 1. Generate a dynamic filename
+    const originalName = currentImage.value?.filename?.split('.')[0] || 'image'
+    const toolName = editor.tool || 'result'
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+
+    // Example: pug_detect_objects_2026-11-27T10-30-00.png
+    const filename = `${originalName}_${toolName}_${timestamp}.png`
+
+    // 2. Fetch the image data
+    const response = await fetch(fullScreenUrl.value)
+    const blob = await response.blob()
+
+    // 3. Create a local URL for the blob
+    const blobUrl = window.URL.createObjectURL(blob)
+
+    // 4. Trigger the download
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.download = filename // <--- Use the dynamic name here
+    document.body.appendChild(link)
+    link.click()
+
+    // 5. Clean up
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(blobUrl)
+  } catch (error) {
+    console.error("Download failed:", error)
+  }
 }
 </script>
 
@@ -206,15 +267,21 @@ async function run() {
             <div
               class="relative flex min-h-[300px] items-center justify-center overflow-hidden rounded-md bg-slate-950">
 
-              <img v-if="editor.resultUrl" :src="editor.resultUrl" class="max-h-[350px] max-w-full object-contain" />
+              <img v-if="editor.resultUrl" :src="editor.resultUrl"
+                class="max-h-[350px] max-w-full object-contain cursor-pointer hover:opacity-90 transition"
+                @click="isFullScreen = true" />
 
               <!-- Object detection overlay -->
               <div v-else-if="detectionMeta && currentImage"
                 class="flex flex-col items-center max-w-full max-h-full p-2">
                 <div class="relative inline-block max-h-[350px] align-middle">
-                  <img :src="currentImage.original_url || currentImage.thumb_url || undefined"
-                    class="block max-h-[350px] w-auto max-w-full object-contain" />
 
+                  <!-- The Clickable Image -->
+                  <img :src="currentImage.original_url || currentImage.thumb_url || undefined"
+                    class="block max-h-[350px] w-auto max-w-full object-contain cursor-pointer hover:opacity-90 transition"
+                    @click="isFullScreen = true" />
+
+                  <!-- The SVG Boxes -->
                   <svg class="absolute inset-0 w-full h-full pointer-events-none overflow-visible" viewBox="0 0 100 100"
                     preserveAspectRatio="none">
                     <rect v-for="(obj, i) in detectionMeta.objects" :key="i"
@@ -233,8 +300,8 @@ async function run() {
               </div>
 
               <!-- NSFW Blurred Image Display (NEW) -->
-              <img v-else-if="editor.resultMeta?.blurred_image_b64" 
-                :src="'data:image/png;base64,' + editor.resultMeta.blurred_image_b64" 
+              <img v-else-if="editor.resultMeta?.blurred_image_b64"
+                :src="'data:image/png;base64,' + editor.resultMeta.blurred_image_b64"
                 class="max-h-[350px] max-w-full object-contain rounded-md" />
 
               <!-- Fallback JSON for other tools -->
@@ -261,5 +328,89 @@ async function run() {
         </div>
       </section>
     </div>
+  </div>
+
+  <!-- Full Screen Image Viewer -->
+  <div v-if="isFullScreen && fullScreenUrl" class="fixed inset-0 z-50 flex flex-col bg-slate-950/95 backdrop-blur-md">
+
+    <!-- Top Bar -->
+    <div class="flex items-center justify-between px-6 py-4">
+
+      <!-- Left: Title -->
+      <div class="flex items-center gap-2 text-slate-300">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+          <circle cx="8.5" cy="8.5" r="1.5"></circle>
+          <polyline points="21 15 16 10 5 21"></polyline>
+        </svg>
+        <span class="font-medium text-sm tracking-wide">Image Viewer</span>
+      </div>
+
+      <!-- Right: Unified Toolbar -->
+      <div class="flex items-center bg-slate-900 border border-slate-800 rounded-lg shadow-lg h-10">
+
+        <!-- Zoom Controls -->
+        <div class="flex items-center gap-3 px-4 h-full border-r border-slate-800">
+          <button @click="zoomLevel = Math.max(0.5, zoomLevel - 0.25)"
+            class="text-slate-400 hover:text-white transition">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+
+          <input type="range" min="50" max="300" :value="zoomLevel * 100" @input="handleZoom"
+            class="w-24 accent-brand-500 cursor-pointer h-1 rounded-full bg-slate-700 appearance-none" />
+
+          <button @click="zoomLevel = Math.min(3, zoomLevel + 0.25)" class="text-slate-400 hover:text-white transition">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+
+          <span class="text-xs font-mono text-slate-400 w-10 text-right">{{ Math.round(zoomLevel * 100) }}%</span>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="flex items-center px-2 h-full gap-1">
+          <!-- Download -->
+          <button @click="downloadResult"
+            class="flex items-center justify-center w-8 h-8 rounded-md hover:bg-slate-800 text-slate-400 hover:text-white transition"
+            title="Download Image">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+          </button>
+
+          <!-- Close -->
+          <button @click="isFullScreen = false"
+            class="flex items-center justify-center w-8 h-8 rounded-md hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition"
+            title="Close">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Image Container -->
+    <div
+      class="flex-1 overflow-hidden relative flex items-center justify-center cursor-grab active:cursor-grabbing p-8 pb-16"
+      @click="isFullScreen = false">
+      <img :src="fullScreenUrl"
+        class="max-h-full max-w-full object-contain transition-transform duration-75 ease-out rounded-sm"
+        :style="{ transform: `scale(${zoomLevel})` }" @click.stop />
+    </div>
+
   </div>
 </template>
