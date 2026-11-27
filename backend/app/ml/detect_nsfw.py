@@ -99,6 +99,10 @@ def detect_nsfw(image: Image.Image, params: dict[str, Any]) -> MLResult:
             final_img = cv2.cvtColor(img_cv2, cv2.COLOR_BGR2RGB)
             blurred_image = Image.fromarray(final_img)
 
+        else:
+            # If safe, just use the original image
+            blurred_image = src
+
         # Construct Meta (passing the blurred image to Ayush)
         meta = {
             "model": _MODEL_ID,
