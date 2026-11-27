@@ -61,18 +61,16 @@ const currentImage = computed(() =>
 const hasImage = computed(() => !!editor.imageId)
 
 const detectionMeta = computed<ObjectResult | null>(() => {
-  const meta = editor.resultMeta
+  const meta = editor.currentState.resultMeta
   if (!meta || !Array.isArray((meta as any).objects)) return null
   return meta as unknown as ObjectResult
 })
 
-// This gets the URL of whatever image is currently in the Result panel
 const fullScreenUrl = computed(() => {
-  if (editor.resultUrl) return editor.resultUrl
+  if (editor.currentState.resultUrl) return editor.currentState.resultUrl
   if (detectionMeta.value) return currentImage.value?.original_url || currentImage.value?.thumb_url
   return null
 })
-
 onMounted(async () => {
   if (images.items.length === 0) await images.refresh()
   const qid = route.query.image as string | undefined
@@ -93,24 +91,35 @@ async function downloadResult() {
     const toolName = editor.tool || 'result'
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
 
-    // Example: pug_detect_objects_2026-11-27T10-30-00.png
-    const filename = `${originalName}_${toolName}_${timestamp}.png`
+    // 2. Determine the correct file extension from the URL
+    // MinIO URLs look like: http://localhost:9000/pixora-results/.../file.jpg?X-Amz-...
+    let extension = 'png' // Default fallback
+    try {
+      const url = new URL(fullScreenUrl.value)
+      const path = url.pathname
+      // Check if the path ends with .jpg, .jpeg, .webp, .png
+      const match = path.match(/\.(png|jpe?g|webp)$/i)
+      if (match) {
+        extension = match[1].toLowerCase()
+      }
+    } catch (e) {
+      console.warn("Could not parse extension from URL", e)
+    }
 
-    // 2. Fetch the image data
+    // Example: beagle_convert_2026-11-27T10-30-00.jpg
+    const filename = `${originalName}_${toolName}_${timestamp}.${extension}`
+
+    // 3. Fetch and download
     const response = await fetch(fullScreenUrl.value)
     const blob = await response.blob()
-
-    // 3. Create a local URL for the blob
     const blobUrl = window.URL.createObjectURL(blob)
 
-    // 4. Trigger the download
     const link = document.createElement('a')
     link.href = blobUrl
-    link.download = filename // <--- Use the dynamic name here
+    link.download = filename
     document.body.appendChild(link)
     link.click()
 
-    // 5. Clean up
     document.body.removeChild(link)
     window.URL.revokeObjectURL(blobUrl)
   } catch (error) {
@@ -127,14 +136,23 @@ async function downloadResult() {
     <div class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[260px_1fr]">
       <!-- Sidebar -->
       <aside class="rounded-lg border border-slate-800 bg-slate-900/50 p-4">
-        <h2 class="mb-3 text-xs uppercase tracking-wide text-slate-500">Tool</h2>
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-xs uppercase tracking-wide text-slate-500">Tool</h2>
+          <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
+            {{ editor.runningCount }} / 3 Active
+          </span>
+        </div>
+        
         <div class="space-y-3">
           <div v-for="group in ['Basic', 'Edit', 'Generate', 'Detect', 'Search']" :key="group">
             <div class="mb-1 text-xs text-slate-500">{{ group }}</div>
+            
             <button v-for="t in tools.filter((x) => x.group === group)" :key="t.id" @click="editor.setTool(t.id)"
-              class="block w-full rounded-md px-3 py-1.5 text-left text-sm transition"
+              class="flex items-center justify-between w-full rounded-md px-3 py-1.5 text-left text-sm transition"
               :class="editor.tool === t.id ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-slate-800'">
-              {{ t.label }}
+              <span>{{ t.label }}</span>
+              <!-- Show a spinner if this specific tool is running -->
+              <span v-if="editor.activeJobs[t.id]?.busy" class="animate-spin h-3 w-3 border-2 border-white/30 border-t-white rounded-full"></span>
             </button>
           </div>
         </div>
@@ -237,12 +255,25 @@ async function downloadResult() {
           </div>
 
           <div class="mt-4 flex items-center gap-3">
-            <button @click="run" :disabled="editor.busy || (!hasImage && editor.tool !== 'generate')"
+            <!-- Run Button -->
+            <button 
+              v-if="!editor.currentState.busy" 
+              @click="run" 
+              :disabled="!hasImage && editor.tool !== 'generate'"
               class="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-500 disabled:opacity-50">
-              {{ editor.busy ? 'Running…' : 'Run' }}
+              Run
             </button>
-            <span v-if="editor.isRunning" class="text-xs text-slate-400">
-              job {{ editor.job?.status }}…
+
+            <!-- Cancel Button -->
+            <button 
+              v-if="editor.currentState.busy" 
+              @click="editor.cancel(editor.tool)"
+              class="rounded-md border border-rose-700 px-4 py-2 text-sm font-medium text-rose-300 hover:bg-rose-500/10 transition">
+              Cancel
+            </button>
+
+            <span v-if="editor.currentState.busy" class="text-xs text-slate-400">
+              job {{ editor.currentState.job?.status ?? 'starting' }}…
             </span>
           </div>
         </div>
@@ -267,7 +298,7 @@ async function downloadResult() {
             <div
               class="relative flex min-h-[300px] items-center justify-center overflow-hidden rounded-md bg-slate-950">
 
-              <img v-if="editor.resultUrl" :src="editor.resultUrl"
+              <img v-if="editor.currentState.resultUrl" :src="editor.currentState.resultUrl"
                 class="max-h-[350px] max-w-full object-contain cursor-pointer hover:opacity-90 transition"
                 @click="isFullScreen = true" />
 
@@ -299,14 +330,9 @@ async function downloadResult() {
                 </div>
               </div>
 
-              <!-- NSFW Blurred Image Display (NEW) -->
-              <img v-else-if="editor.resultMeta?.blurred_image_b64"
-                :src="'data:image/png;base64,' + editor.resultMeta.blurred_image_b64"
-                class="max-h-[350px] max-w-full object-contain rounded-md" />
-
-              <!-- Fallback JSON for other tools -->
-              <pre v-else-if="editor.resultMeta" class="max-h-full overflow-auto p-2 text-xs text-slate-300">{{
-                JSON.stringify(editor.resultMeta, null, 2) }}</pre>
+              <!-- Fallback JSON for tools that only return data (like YOLO coordinates or AI scores) -->
+              <pre v-else-if="editor.currentState.resultMeta" class="max-h-full overflow-auto p-2 text-xs text-slate-300">{{
+                JSON.stringify(editor.currentState.resultMeta, null, 2) }}</pre>
 
               <p v-else class="text-sm text-slate-600">run a tool to see output</p>
             </div>
@@ -323,8 +349,9 @@ async function downloadResult() {
           </div>
         </div>
 
-        <div v-if="editor.error" class="rounded-md bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
-          {{ editor.error }}
+        <!-- Global Error Display -->
+        <div v-if="editor.currentState.error" class="rounded-md bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+          {{ editor.currentState.error }}
         </div>
       </section>
     </div>

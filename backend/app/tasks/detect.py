@@ -74,35 +74,25 @@ def detect_nsfw_task(self, job_id: str) -> str:
         img.load()
 
         result = real_detect_nsfw(img, job.params or {})
-        if not result.ok or not result.output:
+        if not result.ok or result.output is None:
             jobs.mark_failed(job, error=result.error or "ml_error")
             return "failed"
 
-        score = float(result.output.get("nsfw_score", 0.0))
+        # 1. Save the image to MinIO
+        buf = io.BytesIO()
+        result.output.save(buf, format="PNG", optimize=True)
+        result_key = storage.make_key(f"nsfw/{job.user_id}", "out.png")
+        storage.upload_bytes("results", result_key, buf.getvalue(), "image/png")
 
-        # Write back to the image row
+        # 2. Update the Image row with the score
+        score = result.meta.get("nsfw_score", 0.0)
         image.nsfw_score = score
-        image.nsfw_flagged = score >= NSFW_FLAG_THRESHOLD
+        image.nsfw_flagged = result.meta.get("is_vulgar", False)
         db.session.commit()
 
-        blurred_b64 = (result.meta or {}).get("blurred_image_b64")
-        result_key = ""
-
-        if blurred_b64:
-            import base64
-            # 1. Decode the base64 string back to bytes
-            image_bytes = base64.b64decode(blurred_b64)
-            
-            # 2. Upload the bytes to MinIO
-            result_key = storage.make_key(f"nsfw_blur/{job.user_id}", "out.png")
-            storage.upload_bytes("results", result_key, image_bytes, "image/png")
-            
-            # 3. Remove the massive base64 string from meta so we don't bloat the database
-            result.meta.pop("blurred_image_b64", None)
-
-        jobs.mark_done(job, result_key=result_key, meta=result.meta or {})
-        return f"ok: score={score:.3f} flagged={image.nsfw_flagged}"
-    
+        # 3. Mark job done with the MinIO URL
+        jobs.mark_done(job, result_key=result_key, meta=result.meta)
+        return f"ok: {result_key}"
     except Exception as exc:
         jobs.mark_failed(job, error=str(exc))
         raise

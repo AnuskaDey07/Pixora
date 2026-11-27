@@ -1,7 +1,6 @@
 """NSFW detection with regional blurring using ViT, NudeNet, and YOLO."""
 from __future__ import annotations
 
-import base64
 import io
 import time
 from typing import Any
@@ -23,7 +22,6 @@ _EXPLICIT_CLASSES = [
 ]
 
 def _load():
-    """Load all models once and cache them."""
     global _classifier, _nudenet_detector, _yolo_model
     if _classifier is not None:
         return _classifier, _nudenet_detector, _yolo_model
@@ -43,17 +41,6 @@ def _load():
 
 
 def detect_nsfw(image: Image.Image, params: dict[str, Any]) -> MLResult:
-    """Detect NSFW content and blur explicit regions.
-    
-    params:
-        threshold (float, optional): Score above which image is NSFW. Default 0.7.
-        
-    meta:
-        model: str
-        elapsed_ms: int
-        is_vulgar: bool
-        blurred_image_b64: str (base64 encoded PNG if vulgar)
-    """
     start = time.time()
     try:
         classifier, nudenet, yolo = _load()
@@ -61,7 +48,6 @@ def detect_nsfw(image: Image.Image, params: dict[str, Any]) -> MLResult:
         
         src = image.convert("RGB")
         
-        # 1. Global Classifier
         preds = classifier(src)
         scores = {p["label"]: float(p["score"]) for p in preds}
         nsfw_score = scores.get("nsfw", 0.0)
@@ -70,11 +56,9 @@ def detect_nsfw(image: Image.Image, params: dict[str, Any]) -> MLResult:
         blurred_image = None
         
         if is_vulgar:
-            # Convert to OpenCV BGR format for image manipulation
             img_cv2 = cv2.cvtColor(np.array(src), cv2.COLOR_RGB2BGR)
             blurred_count = 0
             
-            # 2. NudeNet (Precision)
             detections = nudenet.detect(img_cv2)
             for detection in detections:
                 if detection['class'] in _EXPLICIT_CLASSES:
@@ -84,40 +68,21 @@ def detect_nsfw(image: Image.Image, params: dict[str, Any]) -> MLResult:
                         img_cv2[y:y+h, x:x+w] = cv2.GaussianBlur(region, (99, 99), 30)
                     blurred_count += 1
             
-            # 3. YOLO Fallback (Safety Net)
             if blurred_count == 0:
                 results = yolo(img_cv2)
                 for box in results[0].boxes:
-                    if int(box.cls[0]) == 0: # Person class
+                    if int(box.cls[0]) == 0:
                         x1, y1, x2, y2 = map(int, box.xyxy[0])
                         region = img_cv2[y1:y2, x1:x2]
                         if region.size > 0:
                             img_cv2[y1:y2, x1:x2] = cv2.GaussianBlur(region, (99, 99), 30)
                         blurred_count += 1
             
-            # Convert back to PIL
             final_img = cv2.cvtColor(img_cv2, cv2.COLOR_BGR2RGB)
             blurred_image = Image.fromarray(final_img)
-
         else:
-            # If safe, just use the original image
             blurred_image = src
 
-        # Construct Meta (passing the blurred image to Ayush)
-        meta = {
-            "model": _MODEL_ID,
-            "elapsed_ms": int((time.time() - start) * 1000),
-            "threshold": threshold,
-            "is_vulgar": is_vulgar
-        }
-        
-        # Convert image to Base64 so it can be saved in the database JSON
-        if blurred_image is not None:
-            buf = io.BytesIO()
-            blurred_image.save(buf, format="PNG", optimize=True)
-            meta["blurred_image_b64"] = base64.b64encode(buf.getvalue()).decode("utf-8")
-
-        # Restore the category names to match the original stub
         categories = {
             "explicit": scores.get("nsfw", 0.0) * 0.7,
             "suggestive": scores.get("nsfw", 0.0) * 0.3
@@ -125,8 +90,14 @@ def detect_nsfw(image: Image.Image, params: dict[str, Any]) -> MLResult:
 
         return MLResult(
             ok=True,
-            output={"nsfw_score": nsfw_score, "categories": categories},
-            meta=meta,
+            output=blurred_image,
+            meta={
+                "nsfw_score": nsfw_score,
+                "is_vulgar": is_vulgar,
+                "categories": categories,
+                "model": _MODEL_ID,
+                "elapsed_ms": int((time.time() - start) * 1000)
+            },
         )
     except Exception as exc:
         return MLResult(ok=False, error=str(exc))
