@@ -15,6 +15,7 @@ from app.services import jobs, storage
 from app.ml.detect_objects import detect_objects as real_detect_objects
 from app.ml.detect_nsfw import detect_nsfw as real_detect_nsfw
 from app.ml.remove_bg import remove_background as real_remove_bg
+from app.ml.detect_ai import detect_ai as real_detect_ai
 
 # Stubs (only for models not yet delivered)
 from app.ml._stub import detect_ai as stub_detect_ai
@@ -105,7 +106,7 @@ def detect_objects_task(self, job_id: str) -> str:
 
 @shared_task(name="app.tasks.detect.detect_ai_task", bind=True, max_retries=1)
 def detect_ai_task(self, job_id: str) -> str:
-    return _run_dict_detect(stub_detect_ai, job_id)
+    return _run_dict_detect(real_detect_ai, job_id)
 
 
 @shared_task(name="app.tasks.detect.remove_bg_task", bind=True, max_retries=1)

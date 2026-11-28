@@ -19,7 +19,6 @@ from __future__ import annotations
 import logging
 import threading
 import time
-
 import numpy as np
 from PIL import Image
 

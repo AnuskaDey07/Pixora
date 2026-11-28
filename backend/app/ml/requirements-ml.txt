@@ -21,3 +21,4 @@ rembg==2.0.59
 
 # Force redis to stay at a version compatible with Celery/kombu
 redis>=6.1.0
+
